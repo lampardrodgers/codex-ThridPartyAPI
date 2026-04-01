@@ -20,6 +20,15 @@
 
 ## 安装
 
+先打开 `codex-thirdparty`，把脚本顶部这两个值改成你自己的：
+
+```bash
+THIRDPARTY_BASE_URL="YOUR-BASE-URL"
+THIRDPARTY_API_KEY="YOUR-API-KEY"
+```
+
+改完后直接执行：
+
 ```bash
 chmod +x ./codex-thirdparty
 ./codex-thirdparty
@@ -27,29 +36,11 @@ chmod +x ./codex-thirdparty
 
 脚本会自动：
 
-- 在 `~/.codex/config.toml` 里补充 `thirdparty` provider 配置
-- 生成 `~/.codex/thirdparty.env`
+- 把 `THIRDPARTY_BASE_URL` 写入 `~/.codex/config.toml`
+- 把 `THIRDPARTY_API_KEY` 写入 `~/.codex/thirdparty.env`
 - 安装 `~/.local/bin/codex-3p`
 
-## 配置
-
-安装完成后，手动把下面两个占位符替换成真实值：
-
-1. `~/.codex/config.toml`
-
-```toml
-[model_providers.thirdparty]
-name = "thirdparty"
-base_url = "YOUR-BASE-URL"
-wire_api = "responses"
-env_key = "CODEX_THIRDPARTY_API_KEY"
-```
-
-2. `~/.codex/thirdparty.env`
-
-```bash
-CODEX_THIRDPARTY_API_KEY=YOUR-API-KEY
-```
+不需要再手动编辑 `~/.codex/config.toml` 或 `~/.codex/thirdparty.env`。
 
 ## 使用方式
 
@@ -84,5 +75,6 @@ codex-3p
 
 ## 备注
 
+- 如果你后面想换第三方地址或 API Key，直接修改 `codex-thirdparty` 顶部两个变量后重新运行一次脚本即可
 - 如果 `codex-3p` 首次提示 `models_cache.json` 缺失，先运行一次官方 `codex`，再重试 `codex-3p`
 - 本仓库只建议上传安装脚本和说明文件，不要把包含私钥或真实配置的本地变体脚本提交到 GitHub
