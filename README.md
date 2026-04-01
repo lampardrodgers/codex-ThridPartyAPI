@@ -42,6 +42,8 @@ chmod +x ./codex-thirdparty
 
 不需要再手动编辑 `~/.codex/config.toml` 或 `~/.codex/thirdparty.env`。
 
+由于第三方兼容接口通常不会像官方方案那样被 Codex 直接识别并自动加载支持模型，`codex-3p` 在启动前会先自动拉取一次第三方接口当前支持的模型列表，再注入给 Codex 使用。
+
 ## 使用方式
 
 ```bash
@@ -61,17 +63,9 @@ codex-3p
 - 想走官方账号时，启动 `codex`
 - 想走第三方接口时，启动 `codex-3p`
 
-## 已知问题
+## 注意事项
 
-当前 `sessions` 仍然会混在 Codex 自己的会话存储里一起显示，但因为 Codex 本身的会话恢复机制和 provider 绑定，官方订阅会话与第三方 API 会话之间目前不能共享，也不能互相 `resume`。
-
-实际影响是：
-
-- 会话列表里可能同时看到两边的 session
-- 但官方开的 session 不能切到第三方 API 去恢复
-- 第三方 API 开的 session 也不能切回官方入口恢复
-
-所以目前应把 `codex` 和 `codex-3p` 视为两套并行入口，只做“并存”，不要把它们理解成可互通的同一套 session。
+`codex` 和 `codex-3p` 的 `sessions` 目前会显示在一起，但受 Codex 自身 provider 绑定和会话恢复机制限制，官方订阅与第三方 API 之间不能共享或互相 `resume` 会话。
 
 ## 备注
 
