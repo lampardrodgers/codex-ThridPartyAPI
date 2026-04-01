@@ -1,0 +1,344 @@
+#!/bin/zsh
+set -euo pipefail
+
+CODEX_HOME="${HOME}/.codex"
+LOCAL_BIN="${HOME}/.local/bin"
+CONFIG_PATH="${CODEX_HOME}/config.toml"
+THIRDPARTY_ENV_PATH="${CODEX_HOME}/thirdparty.env"
+LAUNCHER_PATH="${LOCAL_BIN}/codex-3p"
+
+mkdir -p "${LOCAL_BIN}" "${CODEX_HOME}/model-catalogs"
+
+if ! command -v codex >/dev/null 2>&1; then
+  echo "未检测到 codex，请先在这台 Mac 上安装并确认官方 codex 可用。"
+  exit 1
+fi
+
+if [ ! -f "${CONFIG_PATH}" ]; then
+  echo "未检测到 ${CONFIG_PATH}，请先至少启动过一次官方 codex。"
+  exit 1
+fi
+
+if ! grep -q '^\[model_providers\.thirdparty\]' "${CONFIG_PATH}"; then
+  cat >> "${CONFIG_PATH}" <<'EOF'
+
+[model_providers.thirdparty]
+name = "thirdparty"
+# 填写你的第三方平台地址，例如 https://example.com/v1
+base_url = "YOUR-BASE-URL"
+wire_api = "responses"
+env_key = "CODEX_THIRDPARTY_API_KEY"
+EOF
+fi
+
+cat > "${THIRDPARTY_ENV_PATH}" <<'EOF'
+# Third-party CLI credentials for codex-3p
+# 填写你的 API Key，例如 sk-xxxxxx
+CODEX_THIRDPARTY_API_KEY=YOUR-API-KEY
+EOF
+chmod 600 "${THIRDPARTY_ENV_PATH}"
+
+cat > "${LAUNCHER_PATH}" <<'EOF'
+#!/usr/bin/env python3
+
+import copy
+import json
+import os
+import shutil
+import sys
+import time
+import tomllib
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+
+CODEX_HOME = Path.home() / ".codex"
+CONFIG_PATH = CODEX_HOME / "config.toml"
+MODELS_CACHE_PATH = CODEX_HOME / "models_cache.json"
+THIRDPARTY_ENV_PATH = CODEX_HOME / "thirdparty.env"
+MODEL_CATALOG_PATH = CODEX_HOME / "model-catalogs" / "thirdparty.json"
+PROVIDER_NAME = "thirdparty"
+API_KEY_ENV = "CODEX_THIRDPARTY_API_KEY"
+CACHE_TTL_SECONDS = 300
+
+
+def find_real_codex() -> str:
+    current = Path(__file__).resolve()
+    candidates = [
+        Path.home() / ".npm-global" / "bin" / "codex",
+        Path("/opt/homebrew/bin/codex"),
+        Path("/usr/local/bin/codex"),
+    ]
+    for candidate in candidates:
+        if candidate.exists() and candidate.resolve() != current:
+            return str(candidate)
+
+    path_hit = shutil.which("codex")
+    if path_hit and Path(path_hit).resolve() != current:
+        return path_hit
+
+    raise RuntimeError("real codex executable not found")
+
+
+def load_json(path: Path) -> dict:
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def load_toml(path: Path) -> dict:
+    with path.open("rb") as handle:
+        return tomllib.load(handle)
+
+
+def should_skip_injection(argv: list[str]) -> bool:
+    if os.environ.get("CODEX_SKIP_MODEL_CATALOG") == "1":
+        return True
+
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg in {"-c", "--config"} and i + 1 < len(argv):
+            if argv[i + 1].startswith("model_catalog_json="):
+                return True
+            i += 2
+            continue
+        if arg.startswith("--config=") and "model_catalog_json=" in arg:
+            return True
+        i += 1
+    return False
+
+
+def load_dotenv(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.exists():
+        return values
+
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        values[key.strip()] = value.strip().strip("\"'")
+    return values
+
+
+def provider_config() -> dict:
+    if not CONFIG_PATH.exists():
+        raise RuntimeError(f"missing config file: {CONFIG_PATH}")
+
+    config = load_toml(CONFIG_PATH)
+    providers = config.get("model_providers", {})
+    provider = providers.get(PROVIDER_NAME)
+    if not provider:
+        raise RuntimeError(f"missing [model_providers.{PROVIDER_NAME}] in {CONFIG_PATH}")
+    return provider
+
+
+def ensure_api_key(env: dict[str, str]) -> str:
+    api_key = env.get(API_KEY_ENV)
+    if api_key:
+        return api_key
+
+    env.update(load_dotenv(THIRDPARTY_ENV_PATH))
+    api_key = env.get(API_KEY_ENV)
+    if api_key:
+        return api_key
+
+    raise RuntimeError(
+        f"missing {API_KEY_ENV}; set it in the shell or in {THIRDPARTY_ENV_PATH}"
+    )
+
+
+def fetch_provider_model_ids(base_url: str, api_key: str) -> list[str]:
+    url = base_url.rstrip("/") + "/models"
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "User-Agent": "codex-3p-launcher",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=15) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    items = payload.get("data") or payload.get("models") or []
+    ids: list[str] = []
+    for item in items:
+        if isinstance(item, dict):
+            model_id = item.get("id") or item.get("slug")
+        else:
+            model_id = str(item)
+        if model_id:
+            ids.append(model_id)
+    return ids
+
+
+def load_cached_models() -> dict[str, dict]:
+    if not MODELS_CACHE_PATH.exists():
+        return {}
+    cache = load_json(MODELS_CACHE_PATH)
+    models = cache.get("models", [])
+    return {
+        model["slug"]: model
+        for model in models
+        if isinstance(model, dict) and model.get("slug")
+    }
+
+
+def base_slug_candidates(model_id: str) -> list[str]:
+    parts = model_id.split("-")
+    candidates = []
+    for size in range(len(parts) - 1, 0, -1):
+        candidates.append("-".join(parts[:size]))
+    return candidates
+
+
+def next_free_priority(start: int, used: set[int]) -> int:
+    priority = max(start, 1)
+    while priority in used:
+        priority += 1
+    used.add(priority)
+    return priority
+
+
+def synthesize_model_info(model_id: str, template: dict, used_priorities: set[int]) -> dict:
+    model = copy.deepcopy(template)
+    model["slug"] = model_id
+    model["display_name"] = model_id
+    model["visibility"] = "list"
+    model["supported_in_api"] = True
+    model["description"] = f"Provider-supported model derived from {template['slug']}."
+    base_priority = int(template.get("priority", 100))
+    model["priority"] = next_free_priority(base_priority + 1, used_priorities)
+    upgrade = model.get("upgrade")
+    if isinstance(upgrade, dict) and upgrade.get("model") == template.get("slug"):
+        upgrade["model"] = template.get("upgrade", {}).get("model", "gpt-5.4")
+    return model
+
+
+def build_custom_catalog(model_ids: list[str], cached_models: dict[str, dict]) -> dict:
+    if not cached_models:
+        raise RuntimeError("models_cache.json is missing or empty")
+
+    fallback_template = cached_models.get("gpt-5.4") or next(iter(cached_models.values()))
+    used_priorities = {
+        int(model.get("priority", 0))
+        for model in cached_models.values()
+        if isinstance(model.get("priority"), int)
+    }
+
+    models: list[dict] = []
+    for model_id in model_ids:
+        if model_id in cached_models:
+            model = copy.deepcopy(cached_models[model_id])
+            model["visibility"] = "list"
+            model["supported_in_api"] = True
+            models.append(model)
+            continue
+
+        template = None
+        for candidate in base_slug_candidates(model_id):
+            if candidate in cached_models:
+                template = cached_models[candidate]
+                break
+        if template is None:
+            template = fallback_template
+        models.append(synthesize_model_info(model_id, template, used_priorities))
+
+    models.sort(key=lambda item: int(item.get("priority", 10**9)))
+    return {"models": models}
+
+
+def catalog_is_fresh() -> bool:
+    if not MODEL_CATALOG_PATH.exists():
+        return False
+    age_seconds = time.time() - MODEL_CATALOG_PATH.stat().st_mtime
+    return age_seconds <= CACHE_TTL_SECONDS
+
+
+def ensure_catalog(base_url: str, api_key: str) -> bool:
+    if catalog_is_fresh():
+        return True
+
+    model_ids = fetch_provider_model_ids(base_url, api_key)
+    if not model_ids:
+        return False
+
+    cached_models = load_cached_models()
+    catalog = build_custom_catalog(model_ids, cached_models)
+    MODEL_CATALOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    MODEL_CATALOG_PATH.write_text(
+        json.dumps(catalog, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return True
+
+
+def build_exec_argv(real_codex: str, original_argv: list[str], inject_catalog: bool) -> list[str]:
+    argv = [
+        real_codex,
+        "-c",
+        f"model_provider={json.dumps(PROVIDER_NAME)}",
+    ]
+    if inject_catalog:
+        argv.extend(["-c", f"model_catalog_json={json.dumps(str(MODEL_CATALOG_PATH))}"])
+    argv.extend(original_argv[1:])
+    return argv
+
+
+def main() -> int:
+    try:
+        real_codex = find_real_codex()
+    except RuntimeError as exc:
+        print(f"codex-3p: {exc}", file=sys.stderr)
+        return 127
+
+    provider = provider_config()
+    base_url = provider.get("base_url")
+    if not base_url:
+        print(
+            f"codex-3p: missing base_url in [model_providers.{PROVIDER_NAME}]",
+            file=sys.stderr,
+        )
+        return 1
+
+    env = dict(os.environ)
+    try:
+        api_key = ensure_api_key(env)
+    except RuntimeError as exc:
+        print(f"codex-3p: {exc}", file=sys.stderr)
+        return 1
+
+    inject_catalog = False
+    if not should_skip_injection(sys.argv[1:]):
+        try:
+            inject_catalog = ensure_catalog(base_url, api_key)
+        except (OSError, ValueError, KeyError, urllib.error.URLError, RuntimeError) as exc:
+            print(
+                f"codex-3p: falling back to default catalog: {exc}",
+                file=sys.stderr,
+            )
+
+    os.execve(real_codex, build_exec_argv(real_codex, sys.argv, inject_catalog), env)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+EOF
+
+chmod +x "${LAUNCHER_PATH}"
+
+if ! print -r -- "${PATH}" | grep -q "${HOME}/.local/bin"; then
+  echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${HOME}/.zshrc"
+fi
+
+echo "安装完成。"
+echo "请先把以下占位符改成你的真实配置："
+echo "1. ${CONFIG_PATH} 里的 YOUR-BASE-URL"
+echo "2. ${THIRDPARTY_ENV_PATH} 里的 YOUR-API-KEY"
+echo "建议接下来在这台机器上验证："
+echo "1. codex"
+echo "2. codex-3p"
+echo "如果 codex-3p 首次提示 models_cache.json 缺失，先跑一次官方 codex，再重试 codex-3p。"
