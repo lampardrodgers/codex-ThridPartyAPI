@@ -1,89 +1,21 @@
 # Codex Third-Party API
 
-给官方 `codex` 额外加几个独立入口，用不同命令切换不同 API。
+给官方 `codex` 增加第三方 API 入口。官方入口保留，第三方入口单独运行，互不覆盖。
 
-## 功能
+## 核心模式
 
-- `codex`：继续使用官方 Codex 登录态
-- `codex-3p`：使用通用第三方 OpenAI 兼容接口
-- `codex-deepseek`：使用 DeepSeek API
-- `codex-glm`：使用 GLM Coding Plan API
-- `codex-deepseek-stats`：查看 DeepSeek 推理强度、隐藏思考字符数、缓存命中率
-- `codex-glm-stats`：查看 GLM 推理强度、隐藏思考字符数、输出字符数
+### 1. `codex-3p`：第三方 Codex API / Codex 中转
 
-DeepSeek 和 GLM 的官方接口是 Chat Completions 协议，而当前 Codex 需要 Responses 协议，所以本仓库提供了 `codex-chat-bridge` 做本地转换。
+`codex-3p` 面向第三方平台提供的 **Codex API / Codex 中转 / OpenAI Responses 兼容接口**。
 
-`codex-chat-bridge` 不需要手动运行。安装后执行 `codex-deepseek` 或 `codex-glm` 时，启动脚本会自动拉起 bridge，Codex 退出后会自动关闭。
+适合这些场景：
 
-## 前提
+- 第三方平台已经专门适配 Codex
+- 中转站提供 Codex API
+- 接口本身兼容 Responses API
+- 你只想把官方 `codex` 和第三方入口分开使用
 
-先确认官方 Codex 已经可用：
-
-```bash
-codex --version
-```
-
-并且至少启动过一次官方 `codex`，让本机生成 `~/.codex/config.toml`。
-
-## 安装 DeepSeek
-
-打开 `codex-deepseek`，只需要改脚本最上面的配置：
-
-```bash
-DEEPSEEK_API_KEY="YOUR-DEEPSEEK-API-KEY"
-DEEPSEEK_BASE_URL="https://api.deepseek.com"
-DEEPSEEK_DEFAULT_MODEL="deepseek-v4-pro"
-```
-
-然后执行：
-
-```bash
-chmod +x ./codex-deepseek
-./codex-deepseek
-```
-
-安装后会生成：
-
-- `~/.local/bin/codex-deepseek`
-- `~/.local/bin/codex-deepseek-stats`
-- `~/.codex/deepseek.env`
-- `~/.codex/bin/codex-chat-bridge`
-
-## 安装 GLM Coding Plan
-
-打开 `codex-glm`，只需要改脚本最上面的配置：
-
-```bash
-GLM_API_KEY="YOUR-GLM-API-KEY"
-GLM_BASE_URL="https://api.z.ai/api/coding/paas/v4"
-GLM_DEFAULT_MODEL="glm-5.2"
-```
-
-然后执行：
-
-```bash
-chmod +x ./codex-glm
-./codex-glm
-```
-
-GLM Coding Plan 要使用这个专属端点：
-
-```text
-https://api.z.ai/api/coding/paas/v4
-```
-
-不要改成通用端点 `https://api.z.ai/api/paas/v4`，否则不会走 Coding Plan 额度。
-
-安装后会生成：
-
-- `~/.local/bin/codex-glm`
-- `~/.local/bin/codex-glm-stats`
-- `~/.codex/glm.env`
-- `~/.codex/bin/codex-chat-bridge`
-
-## 安装通用第三方接口
-
-如果你有其他 OpenAI 兼容接口，打开 `codex-thirdparty`，修改顶部：
+安装时只改 `codex-thirdparty` 顶部：
 
 ```bash
 THIRDPARTY_BASE_URL="YOUR-BASE-URL"
@@ -97,67 +29,118 @@ chmod +x ./codex-thirdparty
 ./codex-thirdparty
 ```
 
-安装后使用：
+使用：
 
 ```bash
 codex-3p
 ```
 
-## 日常使用
-
-官方 Codex：
+官方入口仍然是：
 
 ```bash
 codex
 ```
 
-DeepSeek：
+### 2. `codex-deepseek`：DeepSeek 直连
+
+DeepSeek 不是 Codex API，本仓库用本地 bridge 做协议转换。
+
+只需要在 `codex-deepseek` 顶部填 key：
+
+```bash
+DEEPSEEK_API_KEY="YOUR-DEEPSEEK-API-KEY"
+```
+
+然后执行：
+
+```bash
+chmod +x ./codex-deepseek
+./codex-deepseek
+```
+
+安装时需要仓库里的 `codex-chat-bridge` 和 `codex-deepseek` 放在同一目录。脚本会自动安装 bridge，不需要手动运行 bridge。
+
+使用：
 
 ```bash
 codex-deepseek
 ```
 
-GLM Coding Plan：
+### 3. `codex-glm`：GLM Coding Plan 直连
+
+GLM Coding Plan 不是 Codex API，本仓库同样用本地 bridge 做协议转换。
+
+只需要在 `codex-glm` 顶部填 key：
+
+```bash
+GLM_API_KEY="YOUR-GLM-API-KEY"
+```
+
+然后执行：
+
+```bash
+chmod +x ./codex-glm
+./codex-glm
+```
+
+安装时需要仓库里的 `codex-chat-bridge` 和 `codex-glm` 放在同一目录。脚本会自动安装 bridge，不需要手动运行 bridge。
+
+使用：
 
 ```bash
 codex-glm
 ```
 
-强制使用更高推理强度：
+GLM 默认使用 Coding Plan 专属端点：
+
+```text
+https://api.z.ai/api/coding/paas/v4
+```
+
+默认不用改。改成通用端点可能不会走 Coding Plan 额度。
+
+## 日常命令
+
+```bash
+codex              # 官方 OpenAI / ChatGPT 登录态
+codex-3p           # 第三方 Codex API / Codex 中转
+codex-deepseek     # DeepSeek API
+codex-glm          # GLM Coding Plan API
+```
+
+一次性执行：
+
+```bash
+codex-3p exec "只回复：ok"
+codex-deepseek exec "只回复：ok"
+codex-glm exec "只回复：ok"
+```
+
+强制更高推理强度：
 
 ```bash
 codex-deepseek -c model_reasoning_effort='"xhigh"'
 codex-glm -c model_reasoning_effort='"xhigh"'
 ```
 
-也可以直接执行一次性任务：
+DeepSeek/GLM 当前映射：
 
-```bash
-codex-deepseek exec "只回复：ok"
-codex-glm exec "只回复：ok"
+```text
+low / medium / high -> high
+xhigh               -> max
 ```
 
-## 查询推理和缓存
+## 查询状态
 
-DeepSeek 最近 5 条记录：
-
-```bash
-codex-deepseek-stats
-```
-
-DeepSeek 最近 20 条记录：
+DeepSeek：
 
 ```bash
-codex-deepseek-stats 20
+codex-deepseek-stats       # 最近 5 条
+codex-deepseek-stats 20    # 最近 20 条
+codex-deepseek-stats -w    # 实时观察
 ```
 
-实时观察 DeepSeek：
-
-```bash
-codex-deepseek-stats -w
-```
-
-GLM 用法相同：
+GLM：
 
 ```bash
 codex-glm-stats
@@ -165,50 +148,42 @@ codex-glm-stats 20
 codex-glm-stats -w
 ```
 
-示例输出：
+DeepSeek 日志会显示缓存命中率：
 
 ```text
-responses completed model=deepseek-v4-pro reasoning_effort=max reasoning_chars=636 output_chars=48 cache_hit_tokens=10368 cache_miss_tokens=8 cache_hit_rate=99.92%
+cache_hit_tokens=10368 cache_miss_tokens=8 cache_hit_rate=99.92%
 ```
 
-字段含义：
+## bridge 说明
 
-- `reasoning_effort`：实际发给供应商的推理强度，当前是 `high` 或 `max`
-- `reasoning_chars`：供应商返回的隐藏思考字符数，只记录数量，不记录正文
-- `output_chars`：最终回复字符数
-- `cache_hit_tokens` / `cache_miss_tokens`：DeepSeek prompt cache 命中和未命中 token
-- `cache_hit_rate`：DeepSeek 缓存命中率
+`codex-chat-bridge` 是内部转换脚本，不需要手动运行。
 
-Codex TUI 本身不显示 `reasoning_content` 和缓存 usage，所以需要通过 stats 脚本查看。
+- `codex-deepseek` 会自动启动和关闭 bridge
+- `codex-glm` 会自动启动和关闭 bridge
+- `codex-3p` 不走这个 bridge，直接面向第三方 Codex API / Codex 中转
 
-## 推理强度映射
+## 换 key
 
-DeepSeek 和 GLM 这里按两档处理：
-
-```text
-low    -> high
-medium -> high
-high   -> high
-xhigh  -> max
-```
-
-所以真正有明显区别的是 `high` 和 `xhigh`。
-
-## 换 Key 或换模型
-
-重新打开对应安装脚本，修改顶部配置，再执行一次即可：
+重新修改对应脚本顶部 key，再执行一次安装脚本即可：
 
 ```bash
+./codex-thirdparty
 ./codex-deepseek
 ./codex-glm
-./codex-thirdparty
 ```
 
-真实 API key 会写到本机 `~/.codex/*.env`，不要提交这些文件。
+真实 key 会写入本机 `~/.codex/*.env`。不要提交这些文件。
 
-## 注意事项
+## 前提
 
-- `codex-chat-bridge` 是内部转换脚本，不要手动运行。
-- `codex-deepseek` / `codex-glm` 会自动启动和关闭 bridge。
-- `codex`、`codex-deepseek`、`codex-glm` 的会话列表可能显示在一起，但不同 provider 的历史会话不建议互相 resume。
-- 仓库只提交去敏安装脚本和说明，不提交真实 API key、本地 env、日志和私有副本。
+本机已经安装并启动过官方 Codex：
+
+```bash
+codex --version
+```
+
+至少运行过一次官方 `codex`，确保存在：
+
+```text
+~/.codex/config.toml
+```

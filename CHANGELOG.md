@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.1 - 2026-06-18
+
+- Refine README around the core `codex-3p` Codex API relay mode.
+- Simplify DeepSeek and GLM setup notes to focus on API key entry.
+- Clarify that DeepSeek and GLM installers require `codex-chat-bridge` in the same directory.
+
 ## v0.1.0 - 2026-06-18
 
 - Add independent DeepSeek and GLM Coding Plan launchers.
