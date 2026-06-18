@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 可自行修改：GLM bridge 日志路径。
+LOG_FILE="${CODEX_GLM_BRIDGE_LOG:-$HOME/.codex/logs/codex-glm-bridge.log}"
+
+# 可自行修改：默认显示最近几条完成记录。
+DEFAULT_LIMIT="${CODEX_GLM_STATS_LIMIT:-5}"
+
+usage() {
+  cat <<'USAGE'
+用法：
+  codex-glm-stats          显示最近 5 条 GLM 完成记录
+  codex-glm-stats 20       显示最近 20 条 GLM 完成记录
+  codex-glm-stats --watch  实时观察 GLM bridge 日志
+
+输出字段：
+  reasoning_effort     实际发给 GLM 的推理强度 high/max
+  reasoning_chars      GLM 返回的隐藏思考字符数
+  output_chars         最终回复字符数
+
+说明：
+  当前只确认 DeepSeek 返回 prompt cache usage 字段；GLM 统计脚本暂不展示缓存命中率。
+USAGE
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ ! -f "$LOG_FILE" ]]; then
+  echo "找不到日志文件：$LOG_FILE" >&2
+  echo "先运行一次 codex-glm 后再查询。" >&2
+  exit 1
+fi
+
+if [[ "${1:-}" == "--watch" || "${1:-}" == "-w" ]]; then
+  tail -f "$LOG_FILE" | grep --line-buffered "responses completed"
+  exit 0
+fi
+
+limit="${1:-$DEFAULT_LIMIT}"
+if ! [[ "$limit" =~ ^[0-9]+$ ]]; then
+  echo "条数必须是数字：$limit" >&2
+  usage >&2
+  exit 1
+fi
+
+records="$(grep "responses completed" "$LOG_FILE" || true)"
+if [[ -z "$records" ]]; then
+  echo "还没有 GLM 完成记录。先运行一次 codex-glm 后再查询。" >&2
+  exit 1
+fi
+
+printf '%s\n' "$records" | tail -n "$limit"

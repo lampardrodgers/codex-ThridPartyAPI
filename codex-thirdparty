@@ -63,6 +63,13 @@ else:
         text += "\n"
     text += replacement
 
+for stale_section in (
+    "model_providers.thirdparty.auth",
+    "profiles.thirdparty",
+):
+    section_pattern = rf"(?ms)^\[{re.escape(stale_section)}\]\n.*?(?=^\[|\Z)"
+    text = re.sub(section_pattern, "", text)
+
 config_path.write_text(text, encoding="utf-8")
 PY
 
@@ -252,6 +259,27 @@ def synthesize_model_info(model_id: str, template: dict, used_priorities: set[in
     return model
 
 
+def remove_fast_tier(model: dict) -> dict:
+    tiers = model.get("additional_speed_tiers")
+    if not isinstance(tiers, list):
+        return model
+    filtered_tiers = [tier for tier in tiers if tier != "fast"]
+    if filtered_tiers:
+        model["additional_speed_tiers"] = filtered_tiers
+    else:
+        model.pop("additional_speed_tiers", None)
+    return model
+
+
+def remove_fast_tiers_from_catalog(catalog: dict) -> dict:
+    models = catalog.get("models")
+    if isinstance(models, list):
+        for model in models:
+            if isinstance(model, dict):
+                remove_fast_tier(model)
+    return catalog
+
+
 def build_custom_catalog(model_ids: list[str], cached_models: dict[str, dict]) -> dict:
     if not cached_models:
         raise RuntimeError("models_cache.json is missing or empty")
@@ -269,7 +297,7 @@ def build_custom_catalog(model_ids: list[str], cached_models: dict[str, dict]) -
             model = copy.deepcopy(cached_models[model_id])
             model["visibility"] = "list"
             model["supported_in_api"] = True
-            models.append(model)
+            models.append(remove_fast_tier(model))
             continue
 
         template = None
@@ -279,7 +307,7 @@ def build_custom_catalog(model_ids: list[str], cached_models: dict[str, dict]) -
                 break
         if template is None:
             template = fallback_template
-        models.append(synthesize_model_info(model_id, template, used_priorities))
+        models.append(remove_fast_tier(synthesize_model_info(model_id, template, used_priorities)))
 
     models.sort(key=lambda item: int(item.get("priority", 10**9)))
     return {"models": models}
@@ -294,6 +322,11 @@ def catalog_is_fresh() -> bool:
 
 def ensure_catalog(base_url: str, api_key: str) -> bool:
     if catalog_is_fresh():
+        catalog = remove_fast_tiers_from_catalog(load_json(MODEL_CATALOG_PATH))
+        MODEL_CATALOG_PATH.write_text(
+            json.dumps(catalog, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
         return True
 
     model_ids = fetch_provider_model_ids(base_url, api_key)

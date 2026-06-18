@@ -1,0 +1,36 @@
+# macOS / editor noise
+.DS_Store
+*.swp
+*.swo
+
+# Python/runtime caches
+__pycache__/
+*.py[cod]
+
+# Local credentials and generated env files
+.env
+.env.*
+*.env
+*.local
+*.secret
+*.secrets
+
+# Codex local state, logs, and generated catalogs
+.codex/
+logs/
+*.log
+model-catalogs/
+models_cache.json
+
+# Local private script variants and migration copies
+codex-3p-老王
+codex-3p转移
+codex-3p转移_副本
+*副本*
+*private*
+*secret*
+*apikey*
+*api-key*
+
+# Do not commit generated installed launchers copied back from ~/.local/bin.
+local-bin/

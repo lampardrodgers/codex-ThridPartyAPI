@@ -1,0 +1,379 @@
+#!/usr/bin/env python3
+
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+REMOTE_BASE_URL = os.environ["CODEX_BRIDGE_REMOTE_BASE_URL"].rstrip("/")
+API_KEY = os.environ["CODEX_BRIDGE_API_KEY"]
+PORT = int(os.environ["CODEX_BRIDGE_PORT"])
+INCLUDE_USAGE = "deepseek" in REMOTE_BASE_URL.lower()
+
+
+def log(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
+
+
+def write_sse(stream, event: str, data: dict) -> None:
+    stream.write(f"event: {event}\n".encode("utf-8"))
+    stream.write(("data: " + json.dumps(data, ensure_ascii=False) + "\n\n").encode("utf-8"))
+    stream.flush()
+
+
+def content_to_text(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                parts.append(
+                    str(
+                        item.get("text")
+                        or item.get("input_text")
+                        or item.get("output_text")
+                        or item.get("content")
+                        or ""
+                    )
+                )
+            else:
+                parts.append(str(item))
+        return "".join(parts)
+    return str(content or "")
+
+
+def responses_input_to_messages(responses_input, instructions=None) -> list[dict]:
+    messages: list[dict] = []
+    if instructions:
+        messages.append({"role": "system", "content": str(instructions)})
+
+    if isinstance(responses_input, str):
+        messages.append({"role": "user", "content": responses_input})
+        return messages
+
+    if isinstance(responses_input, list):
+        for item in responses_input:
+            if not isinstance(item, dict):
+                messages.append({"role": "user", "content": str(item)})
+                continue
+            role = item.get("role") or "user"
+            if role not in {"system", "user", "assistant", "tool"}:
+                role = "user"
+            text = content_to_text(item.get("content"))
+            if text:
+                messages.append({"role": role, "content": text})
+
+    return messages or [{"role": "user", "content": ""}]
+
+
+def extract_reasoning_effort(payload: dict) -> str:
+    reasoning = payload.get("reasoning")
+    candidates = [
+        payload.get("reasoning_effort"),
+        payload.get("model_reasoning_effort"),
+    ]
+    if isinstance(reasoning, dict):
+        candidates.extend(
+            [
+                reasoning.get("effort"),
+                reasoning.get("reasoning_effort"),
+            ]
+        )
+
+    raw_effort = ""
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            raw_effort = candidate.strip().lower()
+            break
+
+    if raw_effort in {"xhigh", "max", "ultracode"}:
+        return "max"
+    return "high"
+
+
+class BridgeHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, *_args) -> None:
+        return
+
+    def do_GET(self) -> None:
+        if not self.path.endswith("/models"):
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        request = urllib.request.Request(
+            REMOTE_BASE_URL + "/models",
+            headers={"Authorization": f"Bearer {API_KEY}"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                body = response.read()
+                status = response.status
+        except urllib.error.HTTPError as exc:
+            body = exc.read()
+            status = exc.code
+
+        self.send_response(status)
+        self.send_header("content-type", "application/json")
+        self.send_header("content-length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self) -> None:
+        if not self.path.endswith("/responses"):
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        length = int(self.headers.get("content-length") or 0)
+        raw_body = self.rfile.read(length)
+        try:
+            payload = json.loads(raw_body)
+        except ValueError:
+            payload = {}
+
+        model = payload.get("model") or "default"
+        reasoning_effort = extract_reasoning_effort(payload)
+        raw_messages = responses_input_to_messages(
+            payload.get("input"),
+            payload.get("instructions"),
+        )
+        messages: list[dict] = []
+        total_chars = 0
+        for message in raw_messages:
+            content = message.get("content", "")
+            total_chars += len(content)
+            messages.append(message)
+        log(
+            f"responses request model={model} messages={len(messages)} chars={total_chars} "
+            f"has_tools={bool(payload.get('tools'))} reasoning_effort={reasoning_effort}"
+        )
+        chat_payload = {
+            "model": model,
+            "messages": messages,
+            "stream": True,
+            "thinking": {"type": "enabled"},
+            "reasoning_effort": reasoning_effort,
+        }
+        if INCLUDE_USAGE:
+            chat_payload["stream_options"] = {"include_usage": True}
+        if "temperature" in payload:
+            chat_payload["temperature"] = payload["temperature"]
+
+        request = urllib.request.Request(
+            REMOTE_BASE_URL + "/chat/completions",
+            data=json.dumps(chat_payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {API_KEY}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+
+        self.send_response(200)
+        self.send_header("content-type", "text/event-stream")
+        self.send_header("cache-control", "no-cache")
+        self.send_header("connection", "keep-alive")
+        self.end_headers()
+
+        response_id = "resp_" + str(int(time.time() * 1000))
+        item_id = "msg_" + response_id
+        output_text: list[str] = []
+        reasoning_chars = 0
+        usage = None
+
+        write_sse(
+            self.wfile,
+            "response.created",
+            {
+                "type": "response.created",
+                "response": {
+                    "id": response_id,
+                    "object": "response",
+                    "created_at": int(time.time()),
+                    "status": "in_progress",
+                    "model": model,
+                    "output": [],
+                },
+            },
+        )
+        write_sse(
+            self.wfile,
+            "response.output_item.added",
+            {
+                "type": "response.output_item.added",
+                "output_index": 0,
+                "item": {
+                    "id": item_id,
+                    "type": "message",
+                    "status": "in_progress",
+                    "role": "assistant",
+                    "content": [],
+                },
+            },
+        )
+        write_sse(
+            self.wfile,
+            "response.content_part.added",
+            {
+                "type": "response.content_part.added",
+                "item_id": item_id,
+                "output_index": 0,
+                "content_index": 0,
+                "part": {"type": "output_text", "text": ""},
+            },
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                for raw_line in response:
+                    line = raw_line.decode("utf-8", "ignore").strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                    except ValueError:
+                        continue
+                    if isinstance(chunk.get("usage"), dict):
+                        usage = chunk["usage"]
+
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+
+                    delta_obj = choices[0].get("delta", {})
+                    reasoning_delta = delta_obj.get("reasoning_content")
+                    if isinstance(reasoning_delta, str):
+                        reasoning_chars += len(reasoning_delta)
+
+                    delta = delta_obj.get("content")
+                    if not delta:
+                        continue
+                    output_text.append(delta)
+                    write_sse(
+                        self.wfile,
+                        "response.output_text.delta",
+                        {
+                            "type": "response.output_text.delta",
+                            "item_id": item_id,
+                            "output_index": 0,
+                            "content_index": 0,
+                            "delta": delta,
+                        },
+                    )
+        except urllib.error.HTTPError as exc:
+            error_body = exc.read().decode("utf-8", "replace")
+            log(f"upstream http error status={exc.code} body={error_body[:2000]}")
+            write_sse(
+                self.wfile,
+                "response.failed",
+                {
+                    "type": "response.failed",
+                    "response": {
+                        "id": response_id,
+                        "status": "failed",
+                        "error": {"message": f"upstream HTTP {exc.code}: {error_body[:500]}"},
+                    },
+                },
+            )
+            return
+        except Exception as exc:
+            log(f"upstream error: {exc!r}")
+            write_sse(
+                self.wfile,
+                "response.failed",
+                {
+                    "type": "response.failed",
+                    "response": {
+                        "id": response_id,
+                        "status": "failed",
+                        "error": {"message": str(exc)},
+                    },
+                },
+            )
+            return
+
+        text = "".join(output_text)
+        cache_detail = ""
+        if isinstance(usage, dict):
+            hit_tokens = int(usage.get("prompt_cache_hit_tokens") or 0)
+            miss_tokens = int(usage.get("prompt_cache_miss_tokens") or 0)
+            cache_total = hit_tokens + miss_tokens
+            if cache_total:
+                cache_rate = hit_tokens / cache_total * 100
+                cache_detail = (
+                    f" cache_hit_tokens={hit_tokens} cache_miss_tokens={miss_tokens} "
+                    f"cache_hit_rate={cache_rate:.2f}%"
+                )
+        log(
+            f"responses completed model={model} reasoning_effort={reasoning_effort} "
+            f"reasoning_chars={reasoning_chars} output_chars={len(text)}{cache_detail}"
+        )
+        output_item = {
+            "id": item_id,
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": text}],
+        }
+        write_sse(
+            self.wfile,
+            "response.output_text.done",
+            {
+                "type": "response.output_text.done",
+                "item_id": item_id,
+                "output_index": 0,
+                "content_index": 0,
+                "text": text,
+            },
+        )
+        write_sse(
+            self.wfile,
+            "response.content_part.done",
+            {
+                "type": "response.content_part.done",
+                "item_id": item_id,
+                "output_index": 0,
+                "content_index": 0,
+                "part": {"type": "output_text", "text": text},
+            },
+        )
+        write_sse(
+            self.wfile,
+            "response.output_item.done",
+            {
+                "type": "response.output_item.done",
+                "output_index": 0,
+                "item": output_item,
+            },
+        )
+        write_sse(
+            self.wfile,
+            "response.completed",
+            {
+                "type": "response.completed",
+                "response": {
+                    "id": response_id,
+                    "object": "response",
+                    "created_at": int(time.time()),
+                    "status": "completed",
+                    "model": model,
+                    "output": [output_item],
+                },
+            },
+        )
+        self.wfile.write(b"data: [DONE]\n\n")
+        self.wfile.flush()
+
+
+ThreadingHTTPServer(("127.0.0.1", PORT), BridgeHandler).serve_forever()
