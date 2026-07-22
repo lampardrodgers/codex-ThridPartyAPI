@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.2 - 2026-07-22
+
+- Add the `grok-3p` launcher for third-party Grok Build CLI relays.
+- Preserve official Grok configuration while injecting relay models at runtime.
+- Restore global Codex defaults after DeepSeek, GLM, and third-party launcher runs.
+- Document Grok relay setup, model ordering, effort metadata, and troubleshooting.
+
 ## v0.1.1 - 2026-06-18
 
 - Refine README around the core `codex-3p` Codex API relay mode.

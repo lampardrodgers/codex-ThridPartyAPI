@@ -401,6 +401,7 @@ import time
 from pathlib import Path
 
 CODEX_HOME = Path.home() / ".codex"
+CONFIG_PATH = CODEX_HOME / "config.toml"
 ENV_PATH = CODEX_HOME / "glm.env"
 BRIDGE_PATH = CODEX_HOME / "bin" / "codex-chat-bridge"
 LOG_PATH = CODEX_HOME / "logs" / "codex-glm-bridge.log"
@@ -409,6 +410,7 @@ PROVIDER_NAME = "glm"
 API_KEY_ENV = "ZAI_API_KEY"
 REMOTE_BASE_URL = "https://api.z.ai/api/coding/paas/v4"
 DEFAULT_MODEL = "${GLM_DEFAULT_MODEL}"
+GLOBAL_DEFAULT_KEYS = ("model_provider", "model", "model_reasoning_effort")
 
 
 def find_real_codex():
@@ -476,7 +478,59 @@ def build_args(real_codex, original_argv, bridge_port):
     return args
 
 
+def snapshot_global_defaults():
+    if not CONFIG_PATH.exists():
+        return {}
+    defaults = {}
+    for line in CONFIG_PATH.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("["):
+            break
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key in GLOBAL_DEFAULT_KEYS:
+            defaults[key] = value.strip()
+    return defaults
+
+
+def restore_global_defaults(defaults):
+    if not defaults or not CONFIG_PATH.exists():
+        return
+    lines = CONFIG_PATH.read_text(encoding="utf-8").splitlines()
+    restored = []
+    seen = set()
+    inserted_missing = False
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and not inserted_missing:
+            for key in GLOBAL_DEFAULT_KEYS:
+                if key in defaults and key not in seen:
+                    restored.append(f"{key} = {defaults[key]}")
+                    seen.add(key)
+            inserted_missing = True
+
+        if not inserted_missing and "=" in line:
+            key = line.split("=", 1)[0].strip()
+            if key in defaults:
+                restored.append(f"{key} = {defaults[key]}")
+                seen.add(key)
+                continue
+
+        restored.append(line)
+
+    if not inserted_missing:
+        for key in GLOBAL_DEFAULT_KEYS:
+            if key in defaults and key not in seen:
+                restored.append(f"{key} = {defaults[key]}")
+
+    CONFIG_PATH.write_text("\\n".join(restored) + "\\n", encoding="utf-8")
+
+
 def main():
+    global_defaults = snapshot_global_defaults()
     env = dict(os.environ)
     env.update(load_dotenv(ENV_PATH))
     api_key = env.get(API_KEY_ENV)
@@ -509,6 +563,7 @@ def main():
     try:
         return subprocess.run(build_args(find_real_codex(), sys.argv, bridge_port), env=env).returncode
     finally:
+        restore_global_defaults(global_defaults)
         bridge.terminate()
         try:
             bridge.wait(timeout=3)

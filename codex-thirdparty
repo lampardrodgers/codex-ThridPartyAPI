@@ -87,6 +87,7 @@ import copy
 import json
 import os
 import shutil
+import subprocess
 import sys
 import time
 import tomllib
@@ -103,6 +104,7 @@ MODEL_CATALOG_PATH = CODEX_HOME / "model-catalogs" / "thirdparty.json"
 PROVIDER_NAME = "thirdparty"
 API_KEY_ENV = "CODEX_THIRDPARTY_API_KEY"
 CACHE_TTL_SECONDS = 300
+GLOBAL_DEFAULT_KEYS = ("model_provider", "model", "model_reasoning_effort")
 
 
 def find_real_codex() -> str:
@@ -355,6 +357,57 @@ def build_exec_argv(real_codex: str, original_argv: list[str], inject_catalog: b
     return argv
 
 
+def snapshot_global_defaults() -> dict[str, str]:
+    if not CONFIG_PATH.exists():
+        return {}
+    defaults: dict[str, str] = {}
+    for line in CONFIG_PATH.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("["):
+            break
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key in GLOBAL_DEFAULT_KEYS:
+            defaults[key] = value.strip()
+    return defaults
+
+
+def restore_global_defaults(defaults: dict[str, str]) -> None:
+    if not defaults or not CONFIG_PATH.exists():
+        return
+    lines = CONFIG_PATH.read_text(encoding="utf-8").splitlines()
+    restored: list[str] = []
+    seen: set[str] = set()
+    inserted_missing = False
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and not inserted_missing:
+            for key in GLOBAL_DEFAULT_KEYS:
+                if key in defaults and key not in seen:
+                    restored.append(f"{key} = {defaults[key]}")
+                    seen.add(key)
+            inserted_missing = True
+
+        if not inserted_missing and "=" in line:
+            key = line.split("=", 1)[0].strip()
+            if key in defaults:
+                restored.append(f"{key} = {defaults[key]}")
+                seen.add(key)
+                continue
+
+        restored.append(line)
+
+    if not inserted_missing:
+        for key in GLOBAL_DEFAULT_KEYS:
+            if key in defaults and key not in seen:
+                restored.append(f"{key} = {defaults[key]}")
+
+    CONFIG_PATH.write_text("\n".join(restored) + "\n", encoding="utf-8")
+
+
 def main() -> int:
     try:
         real_codex = find_real_codex()
@@ -388,8 +441,11 @@ def main() -> int:
                 file=sys.stderr,
             )
 
-    os.execve(real_codex, build_exec_argv(real_codex, sys.argv, inject_catalog), env)
-    return 0
+    global_defaults = snapshot_global_defaults()
+    try:
+        return subprocess.run(build_exec_argv(real_codex, sys.argv, inject_catalog), env=env).returncode
+    finally:
+        restore_global_defaults(global_defaults)
 
 
 if __name__ == "__main__":
