@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.3 - 2026-07-23
+
+- Make `grok-3p` use isolated `~/.grok-3p` so official `grok` and `grok-3p` can run at the same time without fighting over `config.toml`.
+- Keep real effort menus (from CLI metadata) and newest-first `3p-NN` ordering; direct relay (no local inference proxy).
+- Never rewrite official `~/.grok/config.toml` (avoids JWT→relay 401 when both are open).
+- Refresh `README.md` for concurrent use and the hard requirements above.
+
 ## v0.1.2 - 2026-07-22
 
 - Add the `grok-3p` launcher for third-party Grok Build CLI relays.
