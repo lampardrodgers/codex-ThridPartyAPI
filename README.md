@@ -1,64 +1,241 @@
-# grok-3p
+# Codex Third-Party API
 
-Grok Build CLI 的**第三方中转**启动器。  
-**可以和官方 `grok` 同时开**（互不抢配置）。
+给官方 `codex` 增加第三方 API 入口。官方入口保留，第三方入口单独运行，互不覆盖。
 
-## 和官方怎么并存
+本仓库另含 **Grok Build CLI** 的中转启动器 `grok-3p`（见下文第 4 节）。
 
-| | **`grok`（官方）** | **`grok-3p`（本脚本）** |
-|--|-------------------|-------------------------|
+## 核心模式
+
+### 1. `codex-3p`：第三方 Codex API / Codex 中转
+
+`codex-3p` 面向第三方平台提供的 **Codex API / Codex 中转 / OpenAI Responses 兼容接口**。
+
+适合这些场景：
+
+- 第三方平台已经专门适配 Codex
+- 中转站提供 Codex API
+- 接口本身兼容 Responses API
+- 你只想把官方 `codex` 和第三方入口分开使用
+
+安装时只改 `codex-thirdparty` 顶部：
+
+```bash
+THIRDPARTY_BASE_URL="YOUR-BASE-URL"
+THIRDPARTY_API_KEY="YOUR-API-KEY"
+```
+
+然后执行：
+
+```bash
+chmod +x ./codex-thirdparty
+./codex-thirdparty
+```
+
+使用：
+
+```bash
+codex-3p
+```
+
+官方入口仍然是：
+
+```bash
+codex
+```
+
+### 2. `codex-deepseek`：DeepSeek 直连
+
+DeepSeek 不是 Codex API，本仓库用本地 bridge 做协议转换。
+
+只需要在 `codex-deepseek` 顶部填 key：
+
+```bash
+DEEPSEEK_API_KEY="YOUR-DEEPSEEK-API-KEY"
+```
+
+然后执行：
+
+```bash
+chmod +x ./codex-deepseek
+./codex-deepseek
+```
+
+安装时需要仓库里的 `codex-chat-bridge` 和 `codex-deepseek` 放在同一目录。脚本会自动安装 bridge，不需要手动运行 bridge。
+
+使用：
+
+```bash
+codex-deepseek
+```
+
+### 3. `codex-glm`：GLM Coding Plan 直连
+
+GLM Coding Plan 不是 Codex API，本仓库同样用本地 bridge 做协议转换。
+
+只需要在 `codex-glm` 顶部填 key：
+
+```bash
+GLM_API_KEY="YOUR-GLM-API-KEY"
+```
+
+然后执行：
+
+```bash
+chmod +x ./codex-glm
+./codex-glm
+```
+
+安装时需要仓库里的 `codex-chat-bridge` 和 `codex-glm` 放在同一目录。脚本会自动安装 bridge，不需要手动运行 bridge。
+
+使用：
+
+```bash
+codex-glm
+```
+
+GLM 默认使用 Coding Plan 专属端点：
+
+```text
+https://api.z.ai/api/coding/paas/v4
+```
+
+默认不用改。改成通用端点可能不会走 Coding Plan 额度。
+
+### 4. `grok-3p`：Grok Build CLI 第三方中转
+
+给官方 **Grok Build CLI**（`grok`）增加第三方中转入口。与 `codex-3p` 同思路：官方入口保留，中转入口单独跑。
+
+| | **`grok`（官方）** | **`grok-3p`** |
+|--|-------------------|---------------|
 | 配置目录 | `~/.grok` | **`~/.grok-3p`（隔离）** |
-| config.toml | 订阅 / login | 中转 `3p-NN-*`，**不改官方文件** |
 | 登录 | 需要 | **不需要** |
-| 同时开 | ✅ | ✅ |
-| 模型顺序 | 官方 | `created` 新→旧（`3p-00` 最新） |
+| 同时开 | ✅ | ✅（互不改对方 config） |
+| 模型 | 订阅目录 | 中转 `/models` → `3p-NN-…`（`created` 新→旧） |
 | effort | 官方 | 抄 CLI 真实元数据（不猜名字） |
 | 推理 | 官方 API | **直连中转**（无本地反代，可流式） |
 
-> 以前「注入同一份 `~/.grok/config.toml`」时，裸 `grok` 会读到中转模型却带 JWT → **401**。  
-> 要同时开，必须隔离 home。skills / bin / bundled 等仍从官方 **symlink**，体验尽量一致。
-
-## 使用
+安装：编辑 `grok-3p.sh` 顶部两行后执行：
 
 ```bash
-# 编辑顶部 RELAY_BASE_URL / RELAY_API_KEY 后：
-bash grok-3p.sh install
-grok-3p doctor
+export RELAY_BASE_URL="https://YOUR_RELAY_HOST/v1"
+export RELAY_API_KEY="sk-YOUR_RELAY_KEY"
 
-# 终端 A
-grok
-
-# 终端 B（同时）
-grok-3p
+chmod +x ./grok-3p.sh
+./grok-3p.sh install
+./grok-3p.sh doctor
 ```
 
-选模型：`3p-00-grok-4.5`（`00 · grok-4.5`），effort 在 TUI 里选 High/Medium/Low。
+使用：
 
 ```bash
-grok-3p models
+grok-3p                 # TUI
+grok-3p models          # 3p-00 应为最新
 grok-3p -p 'hi' -m 3p-00-grok-4.5 --reasoning-effort low
+
+grok                    # 官方订阅，可与 grok-3p 同时开
 ```
 
-## 硬需求（保留）
+凭证写在 `~/.grok-3p/thirdparty.env`。skills / bin / bundled 等从官方 symlink，session 在 `~/.grok-3p`。
 
-1. **effort = 官方真实值**（CLI 内嵌 + `models_cache`，不猜名字）  
-2. **新模型在最上面**（`created` 降序 → `3p-00` / `3p-01` …）  
-3. **直连中转 SSE**（无本地推理反代）
+**不要**再往官方 `~/.grok/config.toml` 里注入中转模型：否则另开的裸 `grok` 会带 JWT 打中转 → 401。
 
-## 文件
+## 日常命令
 
-| 路径 | 说明 |
-|------|------|
-| `grok-3p.sh` | 源脚本 |
-| `~/.local/bin/grok-3p` | install 后的启动器 |
-| `~/.grok-3p/` | 3p 专用 home |
-| `~/.grok-3p/thirdparty.env` | 中转凭证 |
-| `~/.grok/` | **仅官方**；本脚本不写 config |
+```bash
+codex              # 官方 OpenAI / ChatGPT 登录态
+codex-3p           # 第三方 Codex API / Codex 中转
+codex-deepseek     # DeepSeek API
+codex-glm          # GLM Coding Plan API
+grok               # 官方 Grok Build CLI 订阅
+grok-3p            # Grok Build CLI 第三方中转
+```
 
-## 刻意不做
+一次性执行：
 
-| 不做 | 原因 |
-|------|------|
-| 改写官方 `~/.grok/config.toml` | 无法与 `grok` 并行 |
-| 本地推理反代 | SSE 缓冲 / Responding 卡住 |
-| 按模型名猜 effort | 不准确 |
+```bash
+codex-3p exec "只回复：ok"
+codex-deepseek exec "只回复：ok"
+codex-glm exec "只回复：ok"
+grok-3p -p '只回复：ok' -m 3p-00-grok-4.5 --reasoning-effort low
+```
+
+强制更高推理强度：
+
+```bash
+codex-deepseek -c model_reasoning_effort='"xhigh"'
+codex-glm -c model_reasoning_effort='"xhigh"'
+```
+
+DeepSeek/GLM 当前映射：
+
+```text
+low / medium / high -> high
+xhigh               -> max
+```
+
+## 查询状态
+
+DeepSeek：
+
+```bash
+codex-deepseek-stats       # 最近 5 条
+codex-deepseek-stats 20    # 最近 20 条
+codex-deepseek-stats -w    # 实时观察
+```
+
+GLM：
+
+```bash
+codex-glm-stats
+codex-glm-stats 20
+codex-glm-stats -w
+```
+
+DeepSeek 日志会显示缓存命中率：
+
+```text
+cache_hit_tokens=10368 cache_miss_tokens=8 cache_hit_rate=99.92%
+```
+
+## bridge 说明
+
+`codex-chat-bridge` 是内部转换脚本，不需要手动运行。
+
+- `codex-deepseek` 会自动启动和关闭 bridge
+- `codex-glm` 会自动启动和关闭 bridge
+- `codex-3p` 不走这个 bridge，直接面向第三方 Codex API / Codex 中转
+- `grok-3p` 也不走这个 bridge，直连 Grok 兼容中转
+
+## 换 key
+
+重新修改对应脚本顶部 key，再执行一次安装脚本即可：
+
+```bash
+./codex-thirdparty
+./codex-deepseek
+./codex-glm
+./grok-3p.sh install
+```
+
+真实 key 会写入本机：
+
+- Codex 相关：`~/.codex/*.env`
+- Grok 中转：`~/.grok-3p/thirdparty.env`
+
+不要提交这些文件。
+
+## 前提
+
+**Codex 系列：** 本机已经安装并启动过官方 Codex：
+
+```bash
+codex --version
+```
+
+至少运行过一次官方 `codex`，确保存在：
+
+```text
+~/.codex/config.toml
+```
+
+**Grok 中转：** 本机已安装官方 Grok Build CLI（`~/.grok/bin/grok`）。`grok-3p` 不需要 `grok login`。
