@@ -4,11 +4,12 @@ set -euo pipefail
 # ===== 需要你自行编辑的关键内容 =====
 # DeepSeek API Key：可以直接填入，也可以保持为空，安装后通过 DEEPSEEK_API_KEY 提供。
 DEEPSEEK_API_KEY=""
+# ===== 通常不需要修改下面内容 =====
+
 # DeepSeek Responses API 官方地址。
 DEEPSEEK_BASE_URL="https://api.deepseek.com/"
 # 启动时会从 DeepSeek 官方接口刷新模型；此值仅作为首选和离线兜底。
 DEEPSEEK_DEFAULT_MODEL="deepseek-v4-flash"
-# ===== 通常不需要修改下面内容 =====
 
 PROVIDER_NAME="deepseek"
 PROVIDER_DISPLAY_NAME="deepseek"
@@ -396,10 +397,6 @@ def build_exec_argv(real_codex: str, original_argv: list[str], default_model: st
         real_codex,
         "-c",
         f"model_provider={json.dumps(PROVIDER_NAME)}",
-        "-c",
-        'preferred_auth_method="apikey"',
-        "-c",
-        'forced_login_method="api"',
     ]
     if not argv_has_model(user_argv):
         argv.extend(["-c", f"model={json.dumps(default_model)}"])
@@ -471,4 +468,5 @@ echo "安装完成：codex-deepseek"
 echo "协议：DeepSeek 官方 Responses API（直连，无本地 bridge）"
 echo "模型与 effort：每次启动时从 DeepSeek 官方接口刷新"
 echo "离线首选模型：${DEEPSEEK_DEFAULT_MODEL}"
+echo "提示：已打开的旧 Codex 会话不会热更新目录；无需强制结束，退出旧会话后重新运行 codex-deepseek 即可。"
 echo "验证命令：codex-deepseek --version"

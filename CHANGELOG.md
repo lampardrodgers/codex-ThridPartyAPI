@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.2.1 - 2026-07-31
+
+- Avoid forcing Codex to switch away from an existing ChatGPT login when launching DeepSeek with its provider API key.
+- Clarify that only the DeepSeek API key requires user configuration and that already-running sessions must be reopened to load refreshed model metadata.
+
 ## v0.2.0 - 2026-07-31
 
 - Switch DeepSeek from the local Chat Completions bridge to the official Responses API.

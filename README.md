@@ -166,6 +166,8 @@ codex-glm -c model_reasoning_effort='"xhigh"'
 
 DeepSeek 的模型与 effort 列表会在每次启动时从官方 `/models` 和 Responses API Reference 刷新，并只保留两者交集；刷新失败时使用上次成功筛选的缓存。选择值会原样发送，不经过本地映射。GLM 当前映射：
 
+模型目录在 Codex 进程启动时载入。更新或重新安装脚本后，已经打开的旧会话不会热更新；无需强制结束进程，正常退出旧会话并重新运行 `codex-deepseek` 即可。强制杀进程可能中断正在执行的任务。
+
 ```text
 low / medium / high -> high
 xhigh               -> max
