@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.0 - 2026-07-31
+
+- Switch DeepSeek from the local Chat Completions bridge to the official Responses API.
+- Refresh Responses-compatible DeepSeek models and reasoning-effort values from official sources on every launch.
+- Remove the obsolete DeepSeek bridge statistics command and rename the remaining bridge as GLM-only.
+
 ## v0.1.4 - 2026-07-24
 
 - Restore full Codex Third-Party README (codex-3p / deepseek / glm); document `grok-3p` as an added section instead of replacing the whole file.

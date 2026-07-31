@@ -379,9 +379,9 @@ chmod +x "${LAUNCHER_PATH}"
 
 mkdir -p "${CODEX_HOME}/bin"
 SCRIPT_DIR="${0:A:h}"
-if [ -f "${SCRIPT_DIR}/codex-chat-bridge" ]; then
-  cp "${SCRIPT_DIR}/codex-chat-bridge" "${CODEX_HOME}/bin/codex-chat-bridge"
-  chmod +x "${CODEX_HOME}/bin/codex-chat-bridge"
+if [ -f "${SCRIPT_DIR}/codex-glm-bridge" ]; then
+  cp "${SCRIPT_DIR}/codex-glm-bridge" "${CODEX_HOME}/bin/codex-glm-bridge"
+  chmod +x "${CODEX_HOME}/bin/codex-glm-bridge"
 fi
 
 if [ -f "${SCRIPT_DIR}/codex-glm-stats" ]; then
@@ -403,7 +403,7 @@ from pathlib import Path
 CODEX_HOME = Path.home() / ".codex"
 CONFIG_PATH = CODEX_HOME / "config.toml"
 ENV_PATH = CODEX_HOME / "glm.env"
-BRIDGE_PATH = CODEX_HOME / "bin" / "codex-chat-bridge"
+BRIDGE_PATH = CODEX_HOME / "bin" / "codex-glm-bridge"
 LOG_PATH = CODEX_HOME / "logs" / "codex-glm-bridge.log"
 MODEL_CATALOG_PATH = CODEX_HOME / "model-catalogs" / "glm.json"
 PROVIDER_NAME = "glm"

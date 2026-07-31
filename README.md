@@ -45,7 +45,7 @@ codex
 
 ### 2. `codex-deepseek`：DeepSeek 直连
 
-DeepSeek 不是 Codex API，本仓库用本地 bridge 做协议转换。
+DeepSeek 官方原生支持 Codex 使用的 Responses API。本脚本直连官方接口，不启动本地 bridge；每次运行 `codex-deepseek` 时会刷新官方可用模型及 reasoning effort。模型必须同时存在于官方 `/models` 和 Responses API Reference 中才会写入 Codex 目录，不支持 Responses API 的模型会被排除。
 
 只需要在 `codex-deepseek` 顶部填 key：
 
@@ -59,8 +59,6 @@ DEEPSEEK_API_KEY="YOUR-DEEPSEEK-API-KEY"
 chmod +x ./codex-deepseek
 ./codex-deepseek
 ```
-
-安装时需要仓库里的 `codex-chat-bridge` 和 `codex-deepseek` 放在同一目录。脚本会自动安装 bridge，不需要手动运行 bridge。
 
 使用：
 
@@ -85,7 +83,7 @@ chmod +x ./codex-glm
 ./codex-glm
 ```
 
-安装时需要仓库里的 `codex-chat-bridge` 和 `codex-glm` 放在同一目录。脚本会自动安装 bridge，不需要手动运行 bridge。
+安装时需要仓库里的 `codex-glm-bridge` 和 `codex-glm` 放在同一目录。脚本会自动安装 GLM 专用 bridge，不需要手动运行。
 
 使用：
 
@@ -159,14 +157,14 @@ codex-glm exec "只回复：ok"
 grok-3p -p '只回复：ok' -m 3p-00-grok-4.5 --reasoning-effort low
 ```
 
-强制更高推理强度：
+指定推理强度：
 
 ```bash
-codex-deepseek -c model_reasoning_effort='"xhigh"'
+codex-deepseek -c model_reasoning_effort='"max"'
 codex-glm -c model_reasoning_effort='"xhigh"'
 ```
 
-DeepSeek/GLM 当前映射：
+DeepSeek 的模型与 effort 列表会在每次启动时从官方 `/models` 和 Responses API Reference 刷新，并只保留两者交集；刷新失败时使用上次成功筛选的缓存。选择值会原样发送，不经过本地映射。GLM 当前映射：
 
 ```text
 low / medium / high -> high
@@ -174,14 +172,6 @@ xhigh               -> max
 ```
 
 ## 查询状态
-
-DeepSeek：
-
-```bash
-codex-deepseek-stats       # 最近 5 条
-codex-deepseek-stats 20    # 最近 20 条
-codex-deepseek-stats -w    # 实时观察
-```
 
 GLM：
 
@@ -191,18 +181,12 @@ codex-glm-stats 20
 codex-glm-stats -w
 ```
 
-DeepSeek 日志会显示缓存命中率：
-
-```text
-cache_hit_tokens=10368 cache_miss_tokens=8 cache_hit_rate=99.92%
-```
-
 ## bridge 说明
 
-`codex-chat-bridge` 是内部转换脚本，不需要手动运行。
+`codex-glm-bridge` 是 GLM 专用的内部转换脚本，不需要手动运行。
 
-- `codex-deepseek` 会自动启动和关闭 bridge
-- `codex-glm` 会自动启动和关闭 bridge
+- `codex-deepseek` 直连 DeepSeek 官方 Responses API，不使用 bridge
+- `codex-glm` 会自动启动和关闭 GLM 专用 bridge
 - `codex-3p` 不走这个 bridge，直接面向第三方 Codex API / Codex 中转
 - `grok-3p` 也不走这个 bridge，直连 Grok 兼容中转
 
