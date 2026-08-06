@@ -1,10 +1,10 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 set -euo pipefail
 
 THIRDPARTY_BASE_URL="YOUR-BASE-URL"
 THIRDPARTY_API_KEY="YOUR-API-KEY"
 
-CODEX_HOME="${HOME}/.codex"
+CODEX_HOME="${CODEX_HOME:-${HOME}/.codex}"
 LOCAL_BIN="${HOME}/.local/bin"
 CONFIG_PATH="${CODEX_HOME}/config.toml"
 THIRDPARTY_ENV_PATH="${CODEX_HOME}/thirdparty.env"
@@ -13,7 +13,7 @@ LAUNCHER_PATH="${LOCAL_BIN}/codex-3p"
 mkdir -p "${LOCAL_BIN}" "${CODEX_HOME}/model-catalogs"
 
 if ! command -v codex >/dev/null 2>&1; then
-  echo "未检测到 codex，请先在这台 Mac 上安装并确认官方 codex 可用。"
+  echo "未检测到 codex，请先在这台机器上安装并确认官方 codex 可用。"
   exit 1
 fi
 
@@ -82,6 +82,7 @@ chmod 600 "${THIRDPARTY_ENV_PATH}"
 
 cat > "${LAUNCHER_PATH}" <<'EOF'
 #!/usr/bin/env python3
+from __future__ import annotations
 
 import copy
 import json
@@ -90,13 +91,17 @@ import shutil
 import subprocess
 import sys
 import time
-import tomllib
 import urllib.error
 import urllib.request
 from pathlib import Path
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10 and older Ubuntu releases.
+    tomllib = None
 
-CODEX_HOME = Path.home() / ".codex"
+
+CODEX_HOME = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
 CONFIG_PATH = CODEX_HOME / "config.toml"
 MODELS_CACHE_PATH = CODEX_HOME / "models_cache.json"
 THIRDPARTY_ENV_PATH = CODEX_HOME / "thirdparty.env"
@@ -110,12 +115,14 @@ GLOBAL_DEFAULT_KEYS = ("model_provider", "model", "model_reasoning_effort")
 def find_real_codex() -> str:
     current = Path(__file__).resolve()
     candidates = [
+        Path.home() / ".local" / "bin" / "codex",
         Path.home() / ".npm-global" / "bin" / "codex",
         Path("/opt/homebrew/bin/codex"),
         Path("/usr/local/bin/codex"),
+        Path("/usr/bin/codex"),
     ]
     for candidate in candidates:
-        if candidate.exists() and candidate.resolve() != current:
+        if candidate.is_file() and candidate.resolve() != current:
             return str(candidate)
 
     path_hit = shutil.which("codex")
@@ -131,8 +138,32 @@ def load_json(path: Path) -> dict:
 
 
 def load_toml(path: Path) -> dict:
-    with path.open("rb") as handle:
-        return tomllib.load(handle)
+    if tomllib is not None:
+        with path.open("rb") as handle:
+            return tomllib.load(handle)
+
+    # The launcher only needs the provider's base_url. Keep this fallback
+    # dependency-free so Ubuntu 20.04/22.04 do not require pip installing tomli.
+    provider = {}
+    in_provider = False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            in_provider = stripped == f"[model_providers.{PROVIDER_NAME}]"
+            continue
+        if not in_provider or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        value = value.strip()
+        if value.startswith('"') and value.endswith('"'):
+            try:
+                value = json.loads(value)
+            except ValueError:
+                value = value[1:-1]
+        elif value.startswith("'") and value.endswith("'"):
+            value = value[1:-1]
+        provider[key.strip()] = value
+    return {"model_providers": {PROVIDER_NAME: provider}}
 
 
 def should_skip_injection(argv: list[str]) -> bool:
@@ -454,9 +485,39 @@ EOF
 
 chmod +x "${LAUNCHER_PATH}"
 
-if ! print -r -- "${PATH}" | grep -q "${HOME}/.local/bin"; then
-  echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${HOME}/.zshrc"
-fi
+ensure_local_bin_on_path() {
+  case ":${PATH:-}:" in
+    *":${LOCAL_BIN}:"*) return 0 ;;
+  esac
+
+  local rc marker path_line found_rc
+  marker="# Codex provider launchers"
+  path_line="export PATH=\"${LOCAL_BIN}:\$PATH\""
+  found_rc=0
+  for rc in "${HOME}/.profile" "${HOME}/.bashrc" "${HOME}/.zshrc"; do
+    [ -f "${rc}" ] || continue
+    found_rc=1
+    if ! grep -Fqx "${path_line}" "${rc}" 2>/dev/null; then
+      {
+        printf '\n%s\n' "${marker}"
+        printf '%s\n' "${path_line}"
+      } >> "${rc}"
+    fi
+  done
+  if [ "${found_rc}" -eq 0 ]; then
+    case "${SHELL:-}" in
+      */zsh) rc="${HOME}/.zshrc" ;;
+      */bash) rc="${HOME}/.bashrc" ;;
+      *) rc="${HOME}/.profile" ;;
+    esac
+    {
+      printf '\n%s\n' "${marker}"
+      printf '%s\n' "${path_line}"
+    } >> "${rc}"
+  fi
+}
+
+ensure_local_bin_on_path
 
 echo "安装完成。"
 echo "已写入："

@@ -74,6 +74,12 @@ need_creds() {
 find_grok() {
   if [[ -x "$OFFICIAL/bin/grok" ]]; then
     GROK_BIN="$OFFICIAL/bin/grok"
+  elif [[ -x "$HOME/.local/bin/grok" ]]; then
+    GROK_BIN="$HOME/.local/bin/grok"
+  elif [[ -x "$HOME/.npm-global/bin/grok" ]]; then
+    GROK_BIN="$HOME/.npm-global/bin/grok"
+  elif [[ -x /opt/homebrew/bin/grok ]]; then
+    GROK_BIN=/opt/homebrew/bin/grok
   elif [[ -x /usr/local/bin/grok ]]; then
     GROK_BIN=/usr/local/bin/grok
   elif command -v grok >/dev/null 2>&1; then
@@ -515,9 +521,11 @@ Path(dst).write_text("".join(out))
 os.chmod(dst, 0o755)
 print("installed", dst)
 PY
-  for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
+  local path_line='export PATH="$HOME/.local/bin:$PATH"' found_rc=0
+  for rc in "$HOME/.profile" "$HOME/.bashrc" "$HOME/.zshrc"; do
     [[ -f "$rc" ]] || continue
-    if ! grep -q 'grok-3p single-script' "$rc" 2>/dev/null; then
+    found_rc=1
+    if ! grep -Fqx "$path_line" "$rc" 2>/dev/null; then
       cat >> "$rc" <<'HOOK'
 
 # >>> grok-3p single-script >>>
@@ -526,6 +534,19 @@ export PATH="$HOME/.local/bin:$PATH"
 HOOK
     fi
   done
+  if (( found_rc == 0 )); then
+    case "${SHELL:-}" in
+      */zsh) rc="$HOME/.zshrc" ;;
+      */bash) rc="$HOME/.bashrc" ;;
+      *) rc="$HOME/.profile" ;;
+    esac
+    cat >> "$rc" <<'HOOK'
+
+# >>> grok-3p single-script >>>
+export PATH="$HOME/.local/bin:$PATH"
+# <<< grok-3p single-script <<<
+HOOK
+  fi
   echo "Install OK — 可同时开："
   echo "  grok      → ~/.grok     （官方订阅，login）"
   echo "  grok-3p   → ~/.grok-3p  （中转，无需 login）"

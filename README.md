@@ -2,6 +2,10 @@
 
 给官方 `codex` 增加第三方 API 入口。官方入口保留，第三方入口单独运行，互不覆盖。
 
+## 平台兼容
+
+`codex-deepseek`、`codex-thirdparty`、`codex-glm` 安装脚本统一使用 Bash，可在 macOS 和 Ubuntu/Linux 上直接执行；生成的启动器使用 Python 3.8+。Ubuntu 22.04 常见的 Python 3.10 不需要额外安装 `tomli`。
+
 本仓库另含 **Grok Build CLI** 的中转启动器 `grok-3p`（见下文第 4 节）。
 
 ## 核心模式

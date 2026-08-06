@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 set -euo pipefail
 
 # ===== 需要你自行编辑的关键内容 =====
@@ -201,6 +201,7 @@ PY
 
 cat > "${LAUNCHER_PATH}" <<'PYEOF'
 #!/usr/bin/env python3
+from __future__ import annotations
 
 import copy
 import html
@@ -229,12 +230,14 @@ RESPONSES_REFERENCE_URL = "https://api-docs.deepseek.com/api/create-response/"
 def find_real_codex() -> str:
     current = Path(__file__).resolve()
     candidates = [
+        Path.home() / ".local" / "bin" / "codex",
         Path.home() / ".npm-global" / "bin" / "codex",
         Path("/opt/homebrew/bin/codex"),
         Path("/usr/local/bin/codex"),
+        Path("/usr/bin/codex"),
     ]
     for candidate in candidates:
-        if candidate.exists() and candidate.resolve() != current:
+        if candidate.is_file() and candidate.resolve() != current:
             return str(candidate)
 
     path_hit = shutil.which("codex")
@@ -460,9 +463,39 @@ PY
 
 chmod +x "${LAUNCHER_PATH}"
 
-if ! print -r -- "${PATH}" | grep -q "${HOME}/.local/bin"; then
-  echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${HOME}/.zshrc"
-fi
+ensure_local_bin_on_path() {
+  case ":${PATH:-}:" in
+    *":${LOCAL_BIN}:"*) return 0 ;;
+  esac
+
+  local rc marker path_line found_rc
+  marker="# Codex provider launchers"
+  path_line="export PATH=\"${LOCAL_BIN}:\$PATH\""
+  found_rc=0
+  for rc in "${HOME}/.profile" "${HOME}/.bashrc" "${HOME}/.zshrc"; do
+    [ -f "${rc}" ] || continue
+    found_rc=1
+    if ! grep -Fqx "${path_line}" "${rc}" 2>/dev/null; then
+      {
+        printf '\n%s\n' "${marker}"
+        printf '%s\n' "${path_line}"
+      } >> "${rc}"
+    fi
+  done
+  if [ "${found_rc}" -eq 0 ]; then
+    case "${SHELL:-}" in
+      */zsh) rc="${HOME}/.zshrc" ;;
+      */bash) rc="${HOME}/.bashrc" ;;
+      *) rc="${HOME}/.profile" ;;
+    esac
+    {
+      printf '\n%s\n' "${marker}"
+      printf '%s\n' "${path_line}"
+    } >> "${rc}"
+  fi
+}
+
+ensure_local_bin_on_path
 
 echo "安装完成：codex-deepseek"
 echo "协议：DeepSeek 官方 Responses API（直连，无本地 bridge）"

@@ -36,7 +36,7 @@ if [[ ! -f "$LOG_FILE" ]]; then
 fi
 
 if [[ "${1:-}" == "--watch" || "${1:-}" == "-w" ]]; then
-  tail -f "$LOG_FILE" | grep --line-buffered "responses completed"
+  tail -f "$LOG_FILE" | awk '/responses completed/ { print; fflush() }'
   exit 0
 fi
 

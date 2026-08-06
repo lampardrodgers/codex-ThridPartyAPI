@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.2 - 2026-08-06
+
+- Make all Codex provider installers runnable with Bash on both macOS and Ubuntu/Linux.
+- Make generated launchers work with Python 3.8+ and add a dependency-free TOML fallback for Ubuntu versions without `tomllib`.
+- Fix GLM environment-key precedence, propagate the configured GLM endpoint to its bridge, and make launcher PATH setup shell-neutral.
+
 ## v0.2.1 - 2026-07-31
 
 - Avoid forcing Codex to switch away from an existing ChatGPT login when launching DeepSeek with its provider API key.
